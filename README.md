@@ -1,18 +1,29 @@
-# 基于scala的实现版本说明
+# Temporal-Spatial Trajectory Join
 
-## 最新的处理策略 (version-2.0)
+## dataFormat
 
-1. 在每个分区内部建立三维R树（R树的索引如果太大，可以先按照数据量进行切分），R树中的每个点的结构如下：
+一些实验设置和使用到的数据结构
 
-   ```
-   {
-   	id;
-   	timeOffset;
-   	lon;
-   	lat;
-   }
-   ```
+## index
 
-2. 输入查询后，在每个分区内部进行单点多次查询，每次的查询范围相当于一个面。
+目前只有三维RTree索引
 
-3. 实现将文件按照每条轨迹的第一个点进行Z-Order排序，保证读入数据块时，可以优先将附近范围的点全部读入。
+## method/Baseline.scala
+
+最暴力的实现方法，全部遍历
+
+## method/SpaceTimePar.scala
+
+当前基于时空分区的实现方法
+
+## method/BaseZorder.scala
+
+进行时间分区，每个分区内部的轨迹按照z-order的顺序排序
+
+## method/oldVersion
+
+之前比较老的实现版本，先进行filter，之后进行refine
+
+## selfPartitioner
+
+一些使用到的自定义分区方法
