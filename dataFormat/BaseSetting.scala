@@ -44,6 +44,8 @@ class BaseSetting extends Serializable{
     var patIDListSize : Int = -1
     var patIDList : Array[Int] = null
 
+    var beginSecond : Int = -1
+
     def setDelta(delta : Double){
         this.delta = delta
     }
@@ -81,5 +83,9 @@ class BaseSetting extends Serializable{
         this.patIDList = new Array[Int](listSize)
                             .zipWithIndex
                             .map(_._2)
+    }
+
+    def setBeginSecond(beginSecond : Int){
+        this.beginSecond = beginSecond
     }
 }
