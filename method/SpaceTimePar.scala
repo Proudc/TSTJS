@@ -21,11 +21,11 @@ import src.main.scala.dataFormat.BaseSetting
 import src.main.scala.index.ThreeDimRTree
 import src.main.scala.selfPartitioner.PartitionByTime
 import src.main.scala.selfPartitioner.PartitionerBySpecifyID
+import src.main.scala.util.PublicFunc
 
 
 
 object SpaceTimePar{
-
 
     def main(args : Array[String]) : Unit = {
         val spark = SparkSession
@@ -38,7 +38,7 @@ object SpaceTimePar{
         myBaseSettings.setDelta(500)
         myBaseSettings.setContiSnap(360)
         myBaseSettings.setTotalSnap(17280)
-        myBaseSettings.setBeginSecond()
+        myBaseSettings.setBeginSecond(0)
         myBaseSettings.setTimeInterval(5)
         myBaseSettings.setRootPath("file:///mnt/disk_data_hdd/changzhihao/random_traj_data/101Day0/")
         myBaseSettings.setTimePartitionsNum(48)
@@ -121,7 +121,7 @@ object SpaceTimePar{
     }
 
     def setIndexOnPartition(inputRDD : RDD[RecordWithSnap], myBaseSettings : BaseSettings) : RDD[(ThreeDimRTree, MBR)] = {
-        val indexRDD : RDD[(ThreeDimRTree, MBR)] = inputRDD.mapPartitions(l => mapToThreeDimRTree(l, myBaseSettings))..persist(StorageLevel.MEMORY_AND_DISK)
+        val indexRDD : RDD[(ThreeDimRTree, MBR)] = inputRDD.mapPartitions(l => mapToThreeDimRTree(l, myBaseSettings)).persist(StorageLevel.MEMORY_AND_DISK)
         indexRDD
     }
 
@@ -155,6 +155,7 @@ object SpaceTimePar{
     def doSearchEntry(sc : SparkContext, myBaseSettings : BaseSettings, indexRDD : indexRDD : RDD[(ThreeDimRTree, MBR)]) : Unit = {
         val patIDList : Array[Int] = myBaseSettings.patIDList
         patIDList.foreach{patID => {
+            // TODO
             val patPath : String = myBaseSettings.rootPath + patID.toString + "..."
             val patCoorList : Array[(Int, Double, Double)] = sc.binaryRecords(patPath)
                                                                .map(l => (ByteBuffer.wrap(l.slice(4, 8)).getInt, 

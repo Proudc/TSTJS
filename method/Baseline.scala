@@ -13,8 +13,13 @@ import scala.collection.mutable.ArrayBuffer
 
 import src.main.scala.dataFormat.RecordWithSnap
 import src.main.scala.dataFormat.BaseSetting
+import src.main.scala.util.PublicFunc
 
 
+/**
+* The most violent solution algorithm, only guarantees correctness
+* This algorithm is used to verify the correctness of other algorithms
+*/
 object Baseline{
     def main(args : Array[String]) : Unit = {
         val spark = SparkSession
@@ -45,8 +50,8 @@ object Baseline{
         val inputRDD  : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 24)
         val recordRDD : RDD[RecordWithSnap] = inputRDD.map(l => new RecordWithSnap(ByteBuffer.wrap(l.slice(0, 4)).getInt, 
                                                                                     ByteBuffer.wrap(l.slice(4, 8)).getInt, 
-                                                                                        ByteBuffer.wrap(l.slice(8, 16)).getDouble, 
-                                                                                        ByteBuffer.wrap(l.slice(16, 24)).getDouble))
+                                                                                    ByteBuffer.wrap(l.slice(8, 16)).getDouble, 
+                                                                                    ByteBuffer.wrap(l.slice(16, 24)).getDouble))
                                                       .persist(StorageLevel.MEMORY_AND_DISK)
         recordRDD
         
