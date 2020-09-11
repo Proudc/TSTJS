@@ -12,6 +12,8 @@ import scala.math._
 import scala.collection.mutable.ArrayBuffer
 
 import src.main.scala.dataFormat.RecordWithSnap
+import src.main.scala.dataFormat.BaseSetting
+
 
 object Baseline{
     def main(args : Array[String]) : Unit = {
@@ -41,8 +43,10 @@ object Baseline{
 
     def readRDDAndMapToRecord(sc : SparkContext, inputFilePath : String, myBaseSettings : BaseSettings) : RDD[RecordWithSnap] = {
         val inputRDD  : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 24)
-        val recordRDD : RDD[RecordWithSnap] = inputRDD.map(l => new RecordWithSnap(ByteBuffer.wrap(l.slice(0, 4)).getInt, ByteBuffer.wrap(l.slice(4, 8)).getInt, 
-                                                            ByteBuffer.wrap(l.slice(8, 16)).getDouble, ByteBuffer.wrap(l.slice(16, 24)).getDouble))
+        val recordRDD : RDD[RecordWithSnap] = inputRDD.map(l => new RecordWithSnap(ByteBuffer.wrap(l.slice(0, 4)).getInt, 
+                                                                                    ByteBuffer.wrap(l.slice(4, 8)).getInt, 
+                                                                                        ByteBuffer.wrap(l.slice(8, 16)).getDouble, 
+                                                                                        ByteBuffer.wrap(l.slice(16, 24)).getDouble))
                                                       .persist(StorageLevel.MEMORY_AND_DISK)
         recordRDD
         
@@ -67,7 +71,8 @@ object Baseline{
         }
     }
 
-    def mapSearchWithTraverse(iter : Iterator[RecordWithSnap], myBaseSettings : BaseSettings, bcPatCoor : Broadcast[Array[(Int, Double, Double)]]) : Iterator[Int] = {
+    def mapSearchWithTraverse(iter : Iterator[RecordWithSnap], myBaseSettings : BaseSettings, 
+                                bcPatCoor : Broadcast[Array[(Int, Double, Double)]]) : Iterator[Int] = {
         
         var temCount  : Int = 0
         var pos       : Int = 0
