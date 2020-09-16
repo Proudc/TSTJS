@@ -166,10 +166,7 @@ object SpaceTimePar{
     }
 
     /**
-    * 在每个分区内部建立R-Tree
-    * 处理时间维度时
-    * 1、首先将具体的时间转换为snapshot
-    * 2、之后将具体的snapshot与本分区开始的snapshot之间的offset作为时间维度插入R-Tree
+    * Build RTree inside each partition
     */
     def mapToRTree(iterator : Iterator[RecordWithSnap], myBaseSettings : BaseSettings) : Iterator[(RTree, MBR)] = {
         val minCap : Int = 30
