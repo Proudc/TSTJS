@@ -327,7 +327,7 @@ object SpaceTimePar{
             val id      : Int = idList(i)
             val timeID  : Int = id / spacePartitionsNum
             val spaceID : Int = id % spacePartitionsNum
-            val name    : String = "partition" + timeID.toString + "zorder" + spaceID.toString
+            val name    : String = "par" + timeID.toString + "zorder" + spaceID.toString
             path = path + name
             if (i != idList.length - 1){
                 path = path + ","
