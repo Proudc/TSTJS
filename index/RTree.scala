@@ -332,7 +332,7 @@ object RTree{
         val minLat       : Double = min(myMBB.minLat, node.lat)
         val maxLat       : Double = max(myMBB.maxLat, node.lat)
         var beforeVolume : Double = myMBB.getVolume()
-        var afterVolume : Double = (maxOffset - minOffset) * (maxLon - minLon) * (maxLat - minLat)
+        var afterVolume  : Double = (maxOffset - minOffset) * (maxLon - minLon) * (maxLat - minLat)
         (afterVolume - beforeVolume) * 1.0
     }
 
@@ -406,18 +406,18 @@ object RTree{
     }
 
     def intersect(MBB1 : MBB, MBB2 : MBB) : Boolean = {
-        val longOffset1 : Int = MBB1.maxOffset - MBB1.minOffset
-        val widthLon1   : Float = MBB1.maxLon - MBB1.minLon
-        val heightLat1  : Float = MBB1.maxLat - MBB1.minLat
-        val cenOffset1  : Int = (MBB1.maxOffset + MBB1.minOffset) / 2
-        var cenLon1     : Float = (MBB1.maxLon + MBB1.minLon) / 2
-        val cenLat1     : Float = (MBB1.maxLat + MBB1.minLat) / 2
-        val longOffset2 : Int = MBB2.maxOffset - MBB2.minOffset
-        val widthLon2   : Float = MBB2.maxLon - MBB2.minLon
-        val heightLat2  : Float = MBB2.maxLat - MBB2.minLat
-        val cenOffset2  : Int = (MBB2.maxOffset + MBB2.minOffset) / 2
-        var cenLon2     : Float = (MBB2.maxLon + MBB2.minLon) / 2
-        val cenLat2     : Float = (MBB2.maxLat + MBB2.minLat) / 2
+        val longOffset1 : Int   = MBB1.getLongOffset
+        val widthLon1   : Float = MBB1.getWidthLon
+        val heightLat1  : Float = MBB1.getHeightLat
+        val cenOffset1  : Int   = MBB1.getCenOffset
+        var cenLon1     : Float = MBB1.getCenLon
+        val cenLat1     : Float = MBB1.getCenLat
+        val longOffset2 : Int   = MBB2.getLongOffset
+        val widthLon2   : Float = MBB2.getWidthLon
+        val heightLat2  : Float = MBB2.getHeightLat
+        val cenOffset2  : Int   = MBB2.getCenOffset
+        var cenLon2     : Float = MBB2.getCenLon
+        val cenLat2     : Float = MBB2.getCenLat
         if ((longOffset1 / 2 + longOffset2 / 2) >= abs(cenOffset1 - cenOffset2) && 
             (widthLon1 / 2 + widthLon2 / 2) >= abs(cenLon1 - cenLon2) && 
             (heightLat1 / 2 + heightLat2 / 2) >= abs(cenLat1 - cenLat2)){

@@ -21,4 +21,29 @@ class MBB extends Serializable{
     def getVolume() : Double = {
         1.0 * (this.maxOffset - this.minOffset) * (this.maxLon - this.minLon) * (this.maxLat - this.minLat)
     }
+
+    def getLongOffset() : Int = {
+        this.maxOffset - this.minOffset
+    }
+
+    def getWidthLon() : Float = {
+        this.maxLon - this.minLon
+    }
+
+    def getHeightLat() : Float = {
+        this.maxLat - this.minLat
+    }
+
+    def getCenOffset() : Int = {
+        (this.maxOffset + this.minOffset) / 2.0
+    }
+
+    def getCenLon() : Float = {
+        (this.maxLon + this.minLon) / 2
+    }
+
+    def getCenLat() : Float = {
+        (this.maxLat + this.minLat) / 2
+    }
+
 }
