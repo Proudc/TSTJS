@@ -46,6 +46,8 @@ class BaseSetting extends Serializable{
 
     var beginSecond : Int = -1
 
+    var recordLength : Int = -1
+
     def setDelta(delta : Double){
         this.delta = delta
     }
@@ -87,5 +89,9 @@ class BaseSetting extends Serializable{
 
     def setBeginSecond(beginSecond : Int){
         this.beginSecond = beginSecond
+    }
+
+    def setRecordLength(recordLength : Int){
+        this.recordLength = recordLength
     }
 }

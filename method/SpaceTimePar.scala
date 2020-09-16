@@ -7,21 +7,21 @@ import org.apache.spark.TaskContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.storage.StorageLevel
 
-
-
 import scala.math._
 import scala.collection.mutable.ArrayBuffer
 
 import java.nio.ByteBuffer
 
 import src.main.scala.dataFormat.RecordWithSnap
-import src.main.scala.dataFormat.RecordWithSnapNew
 import src.main.scala.dataFormat.MBB
 import src.main.scala.dataFormat.MBR
 import src.main.scala.dataFormat.BaseSetting
+
 import src.main.scala.index.RTree
+
 import src.main.scala.selfPartitioner.PartitionByTime
 import src.main.scala.selfPartitioner.PartitionerBySpecifyID
+
 import src.main.scala.util.PublicFunc
 
 
@@ -46,6 +46,7 @@ object SpaceTimePar{
         myBaseSettings.setSpacePartitionsNum(100)
         myBaseSettings.setTotalTrajNums(100000)
         myBaseSettings.setPatIDList(11)
+        myBaseSettings.setRecordLength(10)
 
         val inputFilePath : String = myBaseSettings.rootPath.concat("par*.zhihao")
         val mapFilePath   : String = myBaseSettings.rootPath.concat("par_map*.txt")
@@ -56,7 +57,6 @@ object SpaceTimePar{
         // val recordRDD : RDD[RecordWithSnap] = readRDDAndMapToRecord(sc, inputFilePath, myBaseSettings, mapOfIDToZvalue)
         val recordRDD : RDD[RecordWithSnap] = readRDD(sc, inputFilePath, myBaseSettings, mapOfIDToZvalue)
         
-
         val indexRDD  : RDD[(RTree, MBR)] = setIndexOnPartition(recordRDD, myBaseSettings)
         
         doSearchEntry(sc, myBaseSettings, indexRDD)
@@ -65,14 +65,17 @@ object SpaceTimePar{
     }
 
     /**
-    * 目的是得到每个时间分区中的空间分区状况
-    * 比如说一个时间分区中有100条轨迹
-    * 这100条轨迹对应的z-value分别是50， 43， 49， 79， ...， 60
-    * 则该时间分区对应的map文件为：轨迹id， 该轨迹被分配的空间分区id
-    * 即: 20， 0
-    *     29， 0
-    *     10， 1
-    *     ...
+    * The purpose is to get the mapping status of the space partition in each time partition
+    * Example:
+    * trajectory id------corresponding space partition id------corresponding position in the space partition
+    * 20    0   0
+    * 16    0   1
+    * 80    0   2
+    * 37    1   0
+    * 79    1   1
+    * 69    1   2
+    * 30    2   0
+    * ...
     */
     def getMapValue(sc : SparkContext, mapFilePath : String) : Map[Int, Array[Array[Int]]] = {
         val inputRDD   : RDD[String] = sc.textFile(mapFilePath)
@@ -110,8 +113,9 @@ object SpaceTimePar{
         recordRDD
     }
 
-    def readRDD(sc : SparkContext, inputFilePath : String, mapOfIDToZvalue : Map[Int, Array[Array[Int]]]) : RDD[RecordWithSnap] = {
-        val inputRDD  : RDD[Array[Byte]]    = sc.binaryRecords(inputFilePath, 10)
+    def readRDD(sc : SparkContext, inputFilePath : String, myBaseSettings : BaseSettings, 
+                mapOfIDToZvalue : Map[Int, Array[Array[Int]]]) : RDD[RecordWithSnap] = {
+        val inputRDD  : RDD[Array[Byte]]    = sc.binaryRecords(inputFilePath, myBaseSettings.recordLength)
         val recordRDD : RDD[RecordWithSnap] = inputRDD.mapPartitions(l => fromFileGetID(l, myBaseSettings, mapOfIDToZvalue))
         recordRDD
     }
@@ -154,7 +158,10 @@ object SpaceTimePar{
 
     def setIndexOnPartition(inputRDD : RDD[RecordWithSnap], myBaseSettings : BaseSettings) : RDD[(RTree, MBR)] = {
         val indexRDD : RDD[(RTree, MBR)] = inputRDD.mapPartitions(l => mapToRTree(l, myBaseSettings)).persist(StorageLevel.MEMORY_AND_DISK)
+        val time1 : Long = System.currentTimeMillis
         indexRDD.count()
+        val time2 : Long = System.currentTimeMillis
+        println("Index build time: " + ((time2 - time1) / 1000.0).toDouble)
         indexRDD
     }
 
@@ -184,32 +191,41 @@ object SpaceTimePar{
         Array((root, myMBR)).iterator
     }
 
-    def doSearchEntry(sc : SparkContext, myBaseSettings : BaseSettings, indexRDD : indexRDD : RDD[(RTree, MBR)]) : Unit = {
+    def doSearchEntry(sc : SparkContext, myBaseSettings : BaseSettings, indexRDD : RDD[(RTree, MBR)]) : Unit = {
         val patIDList : Array[Int] = myBaseSettings.patIDList
         patIDList.foreach{patID => {
-            // TODO
             val patPath : String = myBaseSettings.rootPath + "query/trajectory"  + patID.toString + ".zhihao"
-            val patCoorList : Array[(Int, Double, Double)] = sc.binaryRecords(patPath)
+            val patCoorList : Array[(Int, Double, Double)] = sc.binaryRecords(patPath, myBaseSettings.recordLength)
                                                                .map(l => (ByteBuffer.wrap(l.slice(0, 2)).getShort.toInt, 
                                                                             ByteBuffer.wrap(l.slice(2, 6)).getFloat.toDouble, 
                                                                                 ByteBuffer.wrap(l.slice(6, 10)).getFloat.toDouble))
                                                                .collect()
             val bcPatCoor : Broadcast[Array[(Int, Double, Double)]] = sc.broadcast(patCoorList)
+            
+            val time1 : Long = System.currentTimeMillis
             val candiList : Array[Array[Int]] = indexRDD.mapPartitions(l => mapSearchWithIndex(l, myBaseSettings, bcPatCoor))
                                                         .glom()
                                                         .collect()
+            val time2 : Long = System.currentTimeMillis
+            println("Query time on the index: " + ((time2 - time1) / 1000.0).toDouble)
+            
             var partitionIDList : ArrayBuffer[Int] = new ArrayBuffer[Int]()
             var partitionIDMap  : Map[Int, ArrayBuffer[Int]] = Map[Int, ArrayBuffer[Int]]()
+            var candidateNum : Int = 0
             for (i <- 0 to candiList.length - 1){
                 if (candiList(i).length != 1){
                     partitionIDList += candiList(i)(0)
                     var temBuffer : ArrayBuffer[Int] = new ArrayBuffer[Int]()
                     for (j <- 1 to candiList(i).length - 1){
                         temBuffer += candiList(i)(j)
+                        candidateNum += 1
                     }
                     partitionIDMap += candiList(i)(0) -> temBuffer
                 }
             }
+            println("Number of partitions with results: " + partitionIDList.size)
+            println("Number of candidate trajectories: " + candidateNum)
+            
             val inputFilePath : String = getInputFilePath(myBaseSettings, partitionIDList)
             val inputRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 24)
             // TODO
