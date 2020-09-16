@@ -15,10 +15,11 @@ import scala.collection.mutable.ArrayBuffer
 import java.nio.ByteBuffer
 
 import src.main.scala.dataFormat.RecordWithSnap
+import src.main.scala.dataFormat.RecordWithSnapNew
 import src.main.scala.dataFormat.MBB
 import src.main.scala.dataFormat.MBR
 import src.main.scala.dataFormat.BaseSetting
-import src.main.scala.index.ThreeDimRTree
+import src.main.scala.index.RTree
 import src.main.scala.selfPartitioner.PartitionByTime
 import src.main.scala.selfPartitioner.PartitionerBySpecifyID
 import src.main.scala.util.PublicFunc
@@ -40,21 +41,23 @@ object SpaceTimePar{
         myBaseSettings.setTotalSnap(17280)
         myBaseSettings.setBeginSecond(0)
         myBaseSettings.setTimeInterval(5)
-        myBaseSettings.setRootPath("file:///mnt/disk_data_hdd/changzhihao/random_traj_data/101Day0/")
+        myBaseSettings.setRootPath("hdfs:///mnt/disk_data_hdd/changzhihao/random_traj_data/101Day0/")
         myBaseSettings.setTimePartitionsNum(48)
-        myBaseSettings.setSpacePartitionsNum(2)
-        myBaseSettings.setTotalTrajNums(100)
-        myBaseSettings.setPatIDList(21)
+        myBaseSettings.setSpacePartitionsNum(100)
+        myBaseSettings.setTotalTrajNums(100000)
+        myBaseSettings.setPatIDList(11)
 
-        val inputFilePath : String = myBaseSettings.rootPath.concat("trajectory*.txt")
-        val mapFilePath   : String = myBaseSettings.rootPath.concat("map*.txt")
+        val inputFilePath : String = myBaseSettings.rootPath.concat("par*.zhihao")
+        val mapFilePath   : String = myBaseSettings.rootPath.concat("par_map*.txt")
         
         
         val mapOfIDToZvalue : Map[Int, Array[Array[Int]]] = getMapValue(sc, mapFilePath)
 
-        val recordRDD : RDD[RecordWithSnap] = readRDDAndMapToRecord(sc, inputFilePath, myBaseSettings, mapOfIDToZvalue)
+        // val recordRDD : RDD[RecordWithSnap] = readRDDAndMapToRecord(sc, inputFilePath, myBaseSettings, mapOfIDToZvalue)
+        val recordRDD : RDD[RecordWithSnap] = readRDD(sc, inputFilePath, myBaseSettings, mapOfIDToZvalue)
         
-        val indexRDD  : RDD[(ThreeDimRTree, MBR)] = setIndexOnPartition(recordRDD, myBaseSettings)
+
+        val indexRDD  : RDD[(RTree, MBR)] = setIndexOnPartition(recordRDD, myBaseSettings)
         
         doSearchEntry(sc, myBaseSettings, indexRDD)
         
@@ -77,12 +80,13 @@ object SpaceTimePar{
                                                         .collect()
         var mapOfIDToZvalue : Map[Int, Array[Array[Int]]] = Map[Int, Array[Array[Int]]]()
         for (i <- 0 to arrayValue.length - 1){
-            val eachValue : Array[Array[Int]] = Array.ofDim(arrayValue(i).length, 2)
+            val eachValue : Array[Array[Int]] = Array.ofDim(arrayValue(i).length, 3)
             for (j <- 0 to arrayValue(i).length - 1){
                 val line  : String = arrayValue(i)(j)
                 val words : Array[String] = line.split("\t")
-                eachValue(j)(0) = words(0).toInt
-                eachValue(j)(1) = words(1).toInt
+                eachValue(j)(0) = words(0).toInt // trajectory id
+                eachValue(j)(1) = words(1).toInt // corresponding space partition id
+                eachValue(j)(2) = words(2).toInt // corresponding position in the space partition
             }
             mapOfIDToZvalue += i -> eachValue
         }
@@ -92,7 +96,7 @@ object SpaceTimePar{
     def readRDDAndMapToRecord(sc : SparkContext, inputFilePath : String, myBaseSettings : BaseSettings, 
                                 mapOfIDToZvalue : Map[Int, Array[Array[Int]]]) : RDD[RecordWithSnap] = {
         val totalPartitionsNum : Int = myBaseSettings.timePartitionsNum * myBaseSettings.spacePartitionsNum
-        val inputRDD  : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 24)
+        val inputRDD  : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 10)
         val recordRDD : RDD[RecordWithSnap] = inputRDD.map(l => new RecordWithSnap(ByteBuffer.wrap(l.slice(0, 4)).getInt, 
                                                                                     ByteBuffer.wrap(l.slice(4, 8)).getInt, 
                                                                                     ByteBuffer.wrap(l.slice(8, 16)).getDouble, 
@@ -104,6 +108,34 @@ object SpaceTimePar{
                                                       .partitionBy(new PartitionerBySpecifyID(totalPartitionsNum))
                                                       .map(l => l._2)
         recordRDD
+    }
+
+    def readRDD(sc : SparkContext, inputFilePath : String, mapOfIDToZvalue : Map[Int, Array[Array[Int]]]) : RDD[RecordWithSnap] = {
+        val inputRDD  : RDD[Array[Byte]]    = sc.binaryRecords(inputFilePath, 10)
+        val recordRDD : RDD[RecordWithSnap] = inputRDD.mapPartitions(l => fromFileGetID(l, myBaseSettings, mapOfIDToZvalue))
+        recordRDD
+    }
+
+    def fromFileGetID(iter : Iterator[Array[Byte]], myBaseSettings : BaseSettings, 
+                        mapOfIDToZvalue : Map[Int, Array[Array[Int]]]) : Iterator[RecordWithSnap] = {
+        val partitionID : Int = TaskContext.get.partitionId
+        val timeMapData : Array[Array[Int]] = mapOfIDToZvalue.get(partitionID / myBaseSettings.spacePartitionsNum).get
+        var resultArray : ArrayBuffer[RecordWithSnap] = ArrayBuffer[RecordWithSnap]()
+        val startSnap   : Int = (partitionID % myBaseSettings.spacePartitionsNum) * (myBaseSettings.totalTrajNums / myBaseSettings.spacePartitionsNum)
+        var currSnap    : Int = startSnap
+        var count       : Int = 0
+        for (record <- iter){
+            val time : Short = ByteBuffer.wrap(l.slice(0, 2)).getShort
+            val lon  : Float = ByteBuffer.wrap(l.slice(2, 6)).getFloat
+            val lat  : Float = ByteBuffer.wrap(l.slice(6, 10)).getFloat
+            resultArray += new RecordWithSnap(timeMapData(currSnap)(0), time.toInt, lon.toDouble, lat.toDouble)
+            count += 1
+            if (count == myBaseSettings.totalSnap / myBaseSettings.timePartitionsNum){
+                currSnap += 1
+                count = 0
+            }
+        }
+        resultArray.iterator
     }
 
     def getPartitionID(iterator : Iterator[RecordWithSnap], spacePartitionsNum : Int, 
@@ -120,8 +152,9 @@ object SpaceTimePar{
         result.iterator
     }
 
-    def setIndexOnPartition(inputRDD : RDD[RecordWithSnap], myBaseSettings : BaseSettings) : RDD[(ThreeDimRTree, MBR)] = {
-        val indexRDD : RDD[(ThreeDimRTree, MBR)] = inputRDD.mapPartitions(l => mapToThreeDimRTree(l, myBaseSettings)).persist(StorageLevel.MEMORY_AND_DISK)
+    def setIndexOnPartition(inputRDD : RDD[RecordWithSnap], myBaseSettings : BaseSettings) : RDD[(RTree, MBR)] = {
+        val indexRDD : RDD[(RTree, MBR)] = inputRDD.mapPartitions(l => mapToRTree(l, myBaseSettings)).persist(StorageLevel.MEMORY_AND_DISK)
+        indexRDD.count()
         indexRDD
     }
 
@@ -131,36 +164,35 @@ object SpaceTimePar{
     * 1、首先将具体的时间转换为snapshot
     * 2、之后将具体的snapshot与本分区开始的snapshot之间的offset作为时间维度插入R-Tree
     */
-    def mapToThreeDimRTree(iterator : Iterator[RecordWithSnap], myBaseSettings : BaseSettings) : Iterator[(ThreeDimRTree, MBR)] = {
-        val minCap : Int = 10
-        val maxCap : Int = 30
-        var root   : ThreeDimRTree = new ThreeDimRTree(null, 1, minCap, maxCap, null, 1, -1)
+    def mapToRTree(iterator : Iterator[RecordWithSnap], myBaseSettings : BaseSettings) : Iterator[(RTree, MBR)] = {
+        val minCap : Int = 30
+        val maxCap : Int = 50
+        var root   : RTree = new RTree(null, 1, minCap, maxCap, null, 1)
         var minLon : Double = Double.MaxValue
         var maxLon : Double = Double.MinValue
         var minLat : Double = Double.MaxValue
         var maxLat : Double = Double.MinValue
         for (record <- iterator){
-            val myMBB : MBB = new MBB(record.currSec, record.currSec, record.lon, record.lon, record.lat, record.lat)
-            var node  : ThreeDimRTree = new ThreeDimRTree(myMBB, 0, minCap, maxCap, null, 0, record.id)
-            root = ThreeDimRTree.insert(root, node)
+            val myPoint : Point = new Point(record.id, record.currSec.toShort, record.lon.toFloat, record.lat.toFloat)
+            root = RTree.insert(root, myPoint)
             minLon = min(minLon, record.lon)
             maxLon = max(maxLon, record.lon)
             minLat = min(minLat, record.lat)
             maxLat = max(maxLat, record.lat)
         }
-        val myMBR : MBR = new MBR(minLon, maxLon, minLat, maxLat)
+        val myMBR : MBR = new MBR(minLon.toFloat, maxLon.toFloat, minLat.toFloat, maxLat.toFloat)
         Array((root, myMBR)).iterator
     }
 
-    def doSearchEntry(sc : SparkContext, myBaseSettings : BaseSettings, indexRDD : indexRDD : RDD[(ThreeDimRTree, MBR)]) : Unit = {
+    def doSearchEntry(sc : SparkContext, myBaseSettings : BaseSettings, indexRDD : indexRDD : RDD[(RTree, MBR)]) : Unit = {
         val patIDList : Array[Int] = myBaseSettings.patIDList
         patIDList.foreach{patID => {
             // TODO
-            val patPath : String = myBaseSettings.rootPath + patID.toString + "..."
+            val patPath : String = myBaseSettings.rootPath + "query/trajectory"  + patID.toString + ".zhihao"
             val patCoorList : Array[(Int, Double, Double)] = sc.binaryRecords(patPath)
-                                                               .map(l => (ByteBuffer.wrap(l.slice(4, 8)).getInt, 
-                                                                            ByteBuffer.wrap(l.slice(8, 16)).getDouble, 
-                                                                                ByteBuffer.wrap(l.slice(16, 24)).getDouble))
+                                                               .map(l => (ByteBuffer.wrap(l.slice(0, 2)).getShort.toInt, 
+                                                                            ByteBuffer.wrap(l.slice(2, 6)).getFloat.toDouble, 
+                                                                                ByteBuffer.wrap(l.slice(6, 10)).getFloat.toDouble))
                                                                .collect()
             val bcPatCoor : Broadcast[Array[(Int, Double, Double)]] = sc.broadcast(patCoorList)
             val candiList : Array[Array[Int]] = indexRDD.mapPartitions(l => mapSearchWithIndex(l, myBaseSettings, bcPatCoor))
@@ -181,11 +213,14 @@ object SpaceTimePar{
             val inputFilePath : String = getInputFilePath(myBaseSettings, partitionIDList)
             val inputRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, 24)
             // TODO
+            val finalResult = inputRDD.mapPartitions(l => mapSearchWithRefine(l, myBaseSettings, partitionIDList, partitionIDMap, bcPatCoor))
+                                      .collect()
+            println(inputFilePath)
         }
         }
     }
 
-    def mapSearchWithIndex(iterator : Iterator[(ThreeDimRTree, MBR)], myBaseSettings : BaseSettings, 
+    def mapSearchWithIndex(iterator : Iterator[(RTree, MBR)], myBaseSettings : BaseSettings, 
                             bcPatCoor : Broadcast[Array[(Int, Double, Double)]]) : Iterator[Int] = {
         
         val timePartitionsNum  : Int    = myBaseSettings.timePartitionsNum
@@ -205,18 +240,18 @@ object SpaceTimePar{
         resultList += partitionID
         
         while(iterator.hasNext){
-            val line  : Tuple2[ThreeDimRTree, MBR] = iterator.next()
-            val root  : ThreeDimRTree = line._1
+            val line  : Tuple2[RTree, MBR] = iterator.next()
+            val root  : RTree = line._1
             val myMBR : MBR = line._2
             if (ifIntersect(myMBR, startSnap, stopSnap, patCoorList, delta)){
                 val currSnap : Int = startSnap
                 while(currSnap < stopSnap){
-                    val minOffset : Int    = patCoorList(currSnap)._1
-                    val maxOffset : Int    = patCoorList(currSnap)._1
-                    val minLon    : Double = patCoorList(currSnap)._2 - lonDiff
-                    val maxLon    : Double = patCoorList(currSnap)._2 + lonDiff
-                    val minLat    : Double = patCoorList(currSnap)._3 - latDiff
-                    val maxLat    : Double = patCoorList(currSnap)._3 + latDiff
+                    val minOffset : Short = patCoorList(currSnap)._1.toShort
+                    val maxOffset : Short = patCoorList(currSnap)._1.toShort
+                    val minLon    : Float = (patCoorList(currSnap)._2 - lonDiff).toFloat
+                    val maxLon    : Float = (patCoorList(currSnap)._2 + lonDiff).toFloat
+                    val minLat    : Float = (patCoorList(currSnap)._3 - latDiff).toFloat
+                    val maxLat    : Float = (patCoorList(currSnap)._3 + latDiff).toFloat
                     val myMBB     : MBB = new MBB(minOffset, maxOffset, minLon, maxLon, minLat, maxLat)
                     val temList   : ArrayBuffer[Int] = root.search(myMBB)
                     temMap += currSnap -> temList

@@ -6,7 +6,7 @@ package src.main.scala.dataFormat
 class RecordWithSnap extends Serializable{
 
     var id      : Int    = _
-    var currSec : Int = _
+    var currSec : Int    = _
     var lon     : Double = _
     var lat     : Double = _
 
