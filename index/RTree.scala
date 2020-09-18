@@ -409,13 +409,13 @@ object RTree{
         val longOffset1 : Int   = MBB1.getLongOffset
         val widthLon1   : Float = MBB1.getWidthLon
         val heightLat1  : Float = MBB1.getHeightLat
-        val cenOffset1  : Int   = MBB1.getCenOffset
+        val cenOffset1  : Float   = MBB1.getCenOffset
         var cenLon1     : Float = MBB1.getCenLon
         val cenLat1     : Float = MBB1.getCenLat
         val longOffset2 : Int   = MBB2.getLongOffset
         val widthLon2   : Float = MBB2.getWidthLon
         val heightLat2  : Float = MBB2.getHeightLat
-        val cenOffset2  : Int   = MBB2.getCenOffset
+        val cenOffset2  : Float   = MBB2.getCenOffset
         var cenLon2     : Float = MBB2.getCenLon
         val cenLat2     : Float = MBB2.getCenLat
         if ((longOffset1 / 2 + longOffset2 / 2) >= abs(cenOffset1 - cenOffset2) && 

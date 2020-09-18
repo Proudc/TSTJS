@@ -36,7 +36,7 @@ class BaseSetting extends Serializable{
     /**
     * Query the total number of trajectory
     */
-    var totalTrajNums = Int = -1
+    var totalTrajNums : Int = -1
 
     /**
     * Number of patients

@@ -90,4 +90,5 @@ object PublicFunc{
         var paredTime   : Double = ceil((23 * 60 + 59) / numParts)
         (totalMinute / paredTime).toInt
     }
+
 }

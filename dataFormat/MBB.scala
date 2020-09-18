@@ -34,8 +34,9 @@ class MBB extends Serializable{
         this.maxLat - this.minLat
     }
 
-    def getCenOffset() : Int = {
-        (this.maxOffset + this.minOffset) / 2.0
+    def getCenOffset() : Float = {
+        val cenOffset : Float = ((this.maxOffset + this.minOffset) / 2.0).toFloat
+        cenOffset
     }
 
     def getCenLon() : Float = {

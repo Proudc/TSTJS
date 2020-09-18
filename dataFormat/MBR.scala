@@ -7,7 +7,7 @@ class MBR extends Serializable{
     var minLat : Float = _
     var maxLat : Float = _
 
-    def this(minLon : Double, maxLon : Double, minLat : Double, maxLat : Double) = {
+    def this(minLon : Float, maxLon : Float, minLat : Float, maxLat : Float) = {
         this()
         this.minLon = minLon
         this.maxLon = maxLon
