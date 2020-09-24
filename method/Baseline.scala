@@ -98,7 +98,7 @@ object Baseline{
             val maxLon  : Double = lon + lonDiff
             val minLat  : Double = lat - latDiff
             val maxLat  : Double = lat + latDiff
-            if (PublicFunc.ifLocateSafeArea(minLon, maxLon, minLat, maxLat, lon, lat)){
+            if (PublicFunc.ifLocateSafeArea(minLon, maxLon, minLat, maxLat, testLon, testLat)){
                 if (contiFlag == 0){
                     temCount = 1
                     contiFlag = 1

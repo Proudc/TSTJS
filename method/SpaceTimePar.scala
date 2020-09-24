@@ -272,7 +272,7 @@ object SpaceTimePar{
                     val myMBB     : MBB = new MBB(minOffset, maxOffset, minLon, maxLon, minLat, maxLat)
                     val temList   : ArrayBuffer[Int] = root.search(myMBB)
                     temMap += currSnap -> temList
-                    currSnap += contiSnap
+                    currSnap += (contiSnap / 2)
                 }
             }
         }
