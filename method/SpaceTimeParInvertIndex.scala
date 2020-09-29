@@ -11,10 +11,14 @@ import scala.math._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.Breaks
 import scala.collection.mutable.Set
+ import scala.collection.mutable.Map
 
 import java.nio.ByteBuffer
 
 import src.main.scala.dataFormat.BaseSetting
+import src.main.scla.index.InvertedIndex
+import src.main.scala.util.PublicFunc
+
 
 
 object SpaceTimeParInvertIndex{
@@ -48,10 +52,14 @@ object SpaceTimeParInvertIndex{
         myBaseSettings.setLonGridLength();
         myBaseSettings.setLatGridLength();
 
-        val inputFilePath     : String = myBaseSettings.rootPath.concat("par*.zhihao")
+        val inputFilePath : String = myBaseSettings.rootPath.concat("par*.zhihao")
         val lookupTableFilePath : String = myBaseSettings.rootPath.concat("par_map*.txt")
 
+        val time1 : Long = System.currentTimeMillis
         val lookupTable : Array[Int] = getLookupTable(sc, lookupTableFilePath)
+        val time2 : Long = System.currentTimeMillis
+        println("The time to get the LookupTable is: " + ((time2 - time1) / 1000.0).toDouble)
+
         val bcLookupTable : Broadcast[Array[Int]] = sc.broadcast(lookupTable)
 
         val indexRDD : RDD[Array[InvertedIndex]] = setIndex(sc, inputFilePath, myBaseSettings, bcLookupTable)
@@ -84,6 +92,12 @@ object SpaceTimeParInvertIndex{
         val inputRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, myBaseSettings.recordLength)
                                             .coalesce(myBaseSettings.timePartitionsNum)
         val indexRDD : RDD[Array[InvertedIndex]] = inputRDD.mapPartitions(l => mapToInvertedIndex(l, myBaseSettings, bcLookupTable))
+                                                           .persist(StorageLevel.MEMORY_AND_DISK)
+        val time1 : Long = System.currentTimeMillis
+        println(indexRDD.count())
+        val time2 : Long = System.currentTimeMillis
+        println("Index build time: " + ((time2 - time1) / 1000.0).toDouble)
+        indexRDD
     }
 
     def mapToInvertedIndex(iter : Iterator[Array[Byte]], myBaseSettings : BaseSetting, 
@@ -175,12 +189,30 @@ object SpaceTimeParInvertIndex{
                                                                     ByteBuffer.wrap(l.slice(4, 8)).getFloat))
                                                         .collect()
             val bcPatCoor : Broadcast[Array[(Float, Float)]] = sc.broadcast(patCoorList)
+
+            val time1 : Long = System.currentTimeMillis
             val candiList : Array[Array[Int]] = indexRDD.mapPartitions(l => mapSearchWithIndex(l, myBaseSettings, bcPatCoor))
                                                         .glom()
                                                         .collect()
+            val time2 : Long = System.currentTimeMillis
+            println("Query time on the index: " + ((time2 - time1) / 1000.0).toDouble)
+
             var mapOfParToTraj : Map[Int, ArrayBuffer[Int]] = Map[Int, ArrayBuffer[Int]]()
             val inputFilePath : String = getInputFilePath(myBaseSettings, candiList, lookupTable, mapOfParToTraj)
             
+            val time3 : Long = System.currentTimeMillis
+            val refineRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, myBaseSettings.recordLength)
+            val refineResult : Array[Array[Int]] = refineRDD.mapPartitions(l => mapSearchWithRefine(l, myBaseSettings, mapOfParToTraj, bcPatCoor, bcLookupTable))
+                                                            .glom()
+                                                            .collect()
+            val time4 : Long = System.currentTimeMillis
+            println("Query time on the refine: " + ((time4 - time3) / 1000.0).toDouble)
+
+            val time5 : Long = System.currentTimeMillis
+            val finalResult : Array[Int] = getFinalResult(refineResult, myBaseSettings)
+            val time6 : Long = System.currentTimeMillis
+            println("The Time of get the final result is: " + ((time6 - time5) / 1000.0).toDouble)
+            println("The number of close contacts of the " + patID + "th patient is: " + finalResult.length)
         }
         }
     }
@@ -423,5 +455,72 @@ object SpaceTimeParInvertIndex{
         }
         result.iterator
 
+    }
+
+    def getFinalResult(inputArray : Array[Array[Int]], myBaseSettings : BaseSetting) : Array[Int] = {
+        var finalResult : Set[Int] = Set[Int]()
+        var temMap : Map[Int, Int] = Map[Int, Int]()
+        for (i <- 0 until refineResult.length){
+            val temArray : Array[Int] = refineResult(i)
+            if (temArray.length != 0){
+                var pos : Int = 0
+                var length : Int = 0
+                if (i == 0){
+                    pos = 0
+                    length = temArray(0)
+                    var myArray : Array[Int] = temArray.slice(pos + 1, pos + length + 1)
+                    for (j <- 0 until myArray.length){
+                        if (!finalResult.contains(myArray(j))){
+                            finalResult.add(myArray(j))
+                        }
+                    }
+                    pos = pos + length
+                    length = temArray(pos)
+                    pos = pos + length
+                    length = temArray(pos)
+                    myArray = temArray.slice(pos + 1, pos + length + 1)
+                    temMap.clear()
+                    for (j <- 0 until myArray.length / 2){
+                        val canTrajID : Int = myArray(j * 2)
+                        val snapNum : Int = myArray(j * 2 + 1)
+                        temMap += canTrajID -> snapNum
+                    }
+                }else{
+                    pos = 0
+                    length = temArray(0)
+                    var myArray : Array[Int] = temArray.slice(pos + 1, pos + length + 1)
+                    for (j <- 0 until myArray.length){
+                        if (!finalResult.contains(myArray(j))){
+                            finalResult.add(myArray(j))
+                        }
+                    }
+                    pos = pos + length
+                    length = temArray(pos)
+                    myArray = temArray.slice(pos + 1, pos + length + 1)
+                    for (j <- 0 until myArray.length / 2){
+                        val canTrajID : Int = myArray(j * 2)
+                        val snapNum : Int = myArray(j * 2 + 1)
+                        if (!finalResult.contains(canTrajID)){
+                            if (temMap.contains(canTrajID)){
+                                val lastSnapNum : Int = temMap.get(canTrajID).get
+                                if (lastSnapNum + snapNum > myBaseSettings.contiSnap){
+                                    finalResult.add(canTrajID)
+                                }
+                            }
+                        }
+                    }
+                    pos = pos + length
+                    length = temArray(pos)
+                    myArray = temArray.slice(pos + 1, pos + length + 1)
+                    temMap.clear()
+                    for (j <- 0 until myArray.length / 2){
+                        val canTrajID : Int = myArray(j * 2)
+                        val snapNum : Int = myArray(j * 2 + 1)
+                        temMap += canTrajID -> snapNum
+                    }
+                }
+            }
+        }
+        finalResult.toArray
     }
 }

@@ -1,6 +1,7 @@
 package src.main.scala.method
 
 import org.apache.spark.SparkContext
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.rdd.RDD
 import org.apache.spark.TaskContext
@@ -32,11 +33,16 @@ import src.main.scala.util.PublicFunc
 object SpaceTimePar{
 
     def main(args : Array[String]) : Unit = {
-        val spark = SparkSession
-                    .builder()
-                    .appName("SpaceTimePar")
-                    .getOrCreate()
-        val sc = spark.sparkContext
+        val conf = new SparkConf()
+                       .setAppName("SpaceTimePar")
+                       .set("spark.driver.host", "192.168.1.74")
+                       .set("spark.driver.port", "8123")
+        val sc = new SparkContext(conf)
+        // val spark = SparkSession
+        //             .builder()
+        //             .appName("SpaceTimePar")
+        //             .getOrCreate()
+        // val sc = spark.sparkContext
 
         val myBaseSettings : BaseSetting = new BaseSetting
         myBaseSettings.setDelta(500)
