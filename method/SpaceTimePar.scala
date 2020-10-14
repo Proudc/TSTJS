@@ -35,7 +35,7 @@ object SpaceTimePar{
     def main(args : Array[String]) : Unit = {
         val conf = new SparkConf()
                        .setAppName("SpaceTimePar")
-                       .set("spark.driver.host", "192.168.1.74")
+                       .set("spark.driver.host", "y3")
                        .set("spark.driver.port", "8123")
         val sc = new SparkContext(conf)
         // val spark = SparkSession

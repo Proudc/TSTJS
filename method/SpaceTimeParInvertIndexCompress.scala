@@ -1,6 +1,7 @@
 package src.main.scala.method
 
 import org.apache.spark.SparkContext
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.rdd.RDD
 import org.apache.spark.TaskContext
@@ -28,13 +29,18 @@ import src.main.scala.selfPartitioner.PartitionerByFilenamemap
 
 
 
-object SpaceTimeParInvertIndex{
+object SpaceTimeParInvertIndexCompress{
     def main(args : Array[String]) : Unit = {
         val spark = SparkSession
                     .builder()
                     .appName("SpaceTimeParInvertIndex")
                     .getOrCreate()
         val sc = spark.sparkContext
+        // val conf = new SparkConf()
+        //                .setAppName("SpaceTimeParInvertIndexCompress")
+        //                .set("spark.files.maxPartitionBytes", "819200")
+        //                .set("spark.files.openCostInBytes", "168960")
+        // val sc = new SparkContext(conf)
 
         val myBaseSettings : BaseSetting = new BaseSetting
         myBaseSettings.setDelta(500)
@@ -43,10 +49,9 @@ object SpaceTimeParInvertIndex{
         myBaseSettings.setBeginSecond(0)
         myBaseSettings.setTimeInterval(5)
         // myBaseSettings.setRootPath("hdfs:///changzhihao/100000Day0Zorder/")
-        myBaseSettings.setRootPath("file:///home/changzhihao/test_data/100000Day0Zorder/")
-        // myBaseSettings.setRootPath("file:///home/changzhihao/test_data/100000Day0Zorder_gzip/")
+        // myBaseSettings.setRootPath("file:///home/changzhihao/test_data/100000Day0Zorder/")
+        myBaseSettings.setRootPath("file:///home/changzhihao/test_data/100000Day0Zorder_gzip/")
         
-
 
         myBaseSettings.setTimePartitionsNum(48)
 
@@ -76,18 +81,13 @@ object SpaceTimeParInvertIndex{
 
         val time1 : Long = System.currentTimeMillis
         val lookupTable : Array[Int] = getLookupTable(sc, lookupTableFilePath, myBaseSettings)
-        // for (i <- 0 until 1){
-        //     for (j <- 0 until 1000){
-        //         println(lookupTable(i * 1000 * 3 + j * 3 ) + "\t" + lookupTable(i * 1000 * 3 + j * 3 + 1) + "\t" + lookupTable(i * 1000 * 3 + j * 3 + 2))
-        //     }
-        // }
+        
         val time2 : Long = System.currentTimeMillis
         println("The time to get the LookupTable is: " + ((time2 - time1) / 1000.0).toDouble)
 
         val bcLookupTable : Broadcast[Array[Int]] = sc.broadcast(lookupTable)
 
-        val indexRDD : RDD[Array[InvertedIndex]] = setIndex(sc, inputFilePath, myBaseSettings, bcLookupTable)
-        // val indexRDD : RDD[Array[InvertedIndex]] = setIndexUsingGz(sc, inputFilePath, myBaseSettings, bcLookupTable)
+        val indexRDD : RDD[Array[InvertedIndex]] = setIndexUsingGz(sc, inputFilePath, myBaseSettings, bcLookupTable)
 
 
         doSearchEntry(sc, myBaseSettings, indexRDD, lookupTable)
@@ -97,8 +97,7 @@ object SpaceTimeParInvertIndex{
         var finalPath : Array[String] = new Array[String](myBaseSettings.timePartitionsNum * myBaseSettings.spacePartitionsNum)
         for (i <- 0 until myBaseSettings.timePartitionsNum){
             for (j <- 0 until myBaseSettings.spacePartitionsNum){
-                finalPath(i * myBaseSettings.spacePartitionsNum + j) = myBaseSettings.rootPath.concat(prefix1).concat(i.toString).concat(prefix2).concat(j.toString).concat(".tstjs")
-                // finalPath(i * myBaseSettings.spacePartitionsNum + j) = myBaseSettings.rootPath.concat(prefix1).concat(i.toString).concat(prefix2).concat(j.toString).concat(".tstjs.gz")
+                finalPath(i * myBaseSettings.spacePartitionsNum + j) = myBaseSettings.rootPath.concat(prefix1).concat(i.toString).concat(prefix2).concat(j.toString).concat(".tstjs.gz")
             }
         }
         finalPath
@@ -132,62 +131,25 @@ object SpaceTimeParInvertIndex{
         lookupTable
     }
 
-    def setIndex(sc : SparkContext, inputFilePath : Array[String], myBaseSettings : BaseSetting, 
-                    bcLookupTable : Broadcast[Array[Int]]) : RDD[Array[InvertedIndex]] = {
-        val inputRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath.mkString(","), myBaseSettings.recordLength)
-
-        //                                     .coalesce(myBaseSettings.timePartitionsNum)
-        // val testRDD : RDD[Int] = inputRDD.mapPartitions(mapToTest)
-        // val indexRDD : RDD[Array[InvertedIndex]] = inputRDD.mapPartitions(l => mapToInvertedIndex(l, myBaseSettings, bcLookupTable))
-        //                                                    .persist(StorageLevel.MEMORY_AND_DISK)
-        val indexRDD : RDD[Array[InvertedIndex]] = inputRDD.mapPartitions(l => mapSpaceParToInvertedIndex(l, myBaseSettings, bcLookupTable))
-                                                           .partitionBy(new PartitionerByIndex(myBaseSettings.timePartitionsNum, myBaseSettings))
-                                                           .mapPartitions(l => coalesceSpaceParIndex(l, myBaseSettings))
-                                                           .persist(StorageLevel.MEMORY_AND_DISK)
-        val time1 : Long = System.currentTimeMillis
-        // println("Inputfilepath is: " + inputFilePath.mkString(","))
-        // println(inputRDD.count() + "\t" + inputRDD.getNumPartitions)
-        // testRDD.collect().foreach(println)
-        println(indexRDD.count())
-        val time2 : Long = System.currentTimeMillis
-        println("Index build time: " + ((time2 - time1) / 1000.0).toDouble)
-        indexRDD
-    }
-
     def setIndexUsingGz(sc : SparkContext, inputFilePath : Array[String], myBaseSettings : BaseSetting, 
                     bcLookupTable : Broadcast[Array[Int]]) : RDD[Array[InvertedIndex]] = {
         val inputRDD1 = sc.binaryFiles(inputFilePath.mkString(","))
         
                           
-        val x = inputRDD1.map(_._1).glom().collect()
-        // for (i <- 0 until x.length){
-        //     for (j <- 0 until x(i).length){
-        //         print(x(i)(j) + "  ")
-        //     }
-        //     println("===")
-        // }
-        println(inputRDD1.getNumPartitions)
-        val inputRDD : RDD[Array[Byte]] = inputRDD1// .partitionBy(new PartitionerByFilename(myBaseSettings.timePartitionsNum * myBaseSettings.spacePartitionsNum))
+        // val x = inputRDD1.map(_._1).glom().collect()
+        
+        val inputRDD : RDD[Array[Byte]] = inputRDD1.partitionBy(new PartitionerByFilename(myBaseSettings.timePartitionsNum * myBaseSettings.spacePartitionsNum))
                                                    .map(_._2.toArray)
                                                    .map(unGzip)
                                                    .map(l => l.grouped(8).toArray)
                                                    .flatMap(_.iterator)
-                                           
-        val time3 : Long = System.currentTimeMillis
-        println(inputRDD.count())
-        val time4 : Long = System.currentTimeMillis
-        println("Read File Time: " + ((time4 - time3) / 1000.0).toDouble)
-        
-        // println(inputFilePath.mkString(","))
+                                                   
         println(inputRDD.getNumPartitions)
         val indexRDD : RDD[Array[InvertedIndex]] = inputRDD.mapPartitions(l => mapSpaceParToInvertedIndex(l, myBaseSettings, bcLookupTable))
                                                            .partitionBy(new PartitionerByIndex(myBaseSettings.timePartitionsNum, myBaseSettings))
                                                            .mapPartitions(l => coalesceSpaceParIndex(l, myBaseSettings))
                                                            .persist(StorageLevel.MEMORY_AND_DISK)
         val time1 : Long = System.currentTimeMillis
-        // println("Inputfilepath is: " + inputFilePath.mkString(","))
-        // println(inputRDD.count() + "\t" + inputRDD.getNumPartitions)
-        // testRDD.collect().foreach(println)
         println(indexRDD.count())
         val time2 : Long = System.currentTimeMillis
         println("Index build time: " + ((time2 - time1) / 1000.0).toDouble)
@@ -509,9 +471,7 @@ object SpaceTimeParInvertIndex{
                                                         .map(l => (ByteBuffer.wrap(l.slice(6, 10)).getFloat, 
                                                                     ByteBuffer.wrap(l.slice(10, 14)).getFloat))
                                                         .collect()
-            // for (i <- 0 until patCoorList.length){
-            //     println(patCoorList(i)._1 + "\t" + patCoorList(i)._2)
-            // }
+
             val bcPatCoor : Broadcast[Array[(Float, Float)]] = sc.broadcast(patCoorList)
             val bcLookupTable : Broadcast[Array[Int]] = sc.broadcast(lookupTable)
 
@@ -524,19 +484,26 @@ object SpaceTimeParInvertIndex{
             println("Query time on the index: " + ((time2 - time1) / 1000.0).toDouble)
             println("The length of candiList is: " + candiList.length)
             // for (i <- 0 until candiList.length){
-            //     print(candiList(i).length)
+            //     if (i == 0){
+            //         for (j <- 0 until candiList(i).length){
+            //             print(candiList(i)(j) + "\t")
+            //         }
+            //     }
             //     println("===")
             // }
-            println("----------------------------------------------------------")
+            // println("----------------------------------------------------------")
 
             var mapOfParToTraj : Map[Int, ArrayBuffer[Int]] = Map[Int, ArrayBuffer[Int]]()
             val inputFilePath : String = getInputFilePath(myBaseSettings, candiList, patID, lookupTable, mapOfParToTraj)
             
             val time3 : Long = System.currentTimeMillis
-            val refineRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, myBaseSettings.recordLength)
-            val refineResult : Array[Array[Int]] = refineRDD.mapPartitions(l => mapSearchWithRefine(l, myBaseSettings, mapOfParToTraj, bcPatCoor))
-                                                            .glom()
-                                                            .collect()
+            // val refineRDD : RDD[Array[Byte]] = sc.binaryRecords(inputFilePath, myBaseSettings.recordLength)
+            val refineResult : Array[Array[Int]] = sc.binaryFiles(inputFilePath)
+                                                     .map(_._2.toArray)
+                                                     .map(unGzip)
+                                                     .zipWithIndex()
+                                                     .map(l => mapSearchWithRefine(l, myBaseSettings, mapOfParToTraj, bcPatCoor))
+                                                     .collect()
             val time4 : Long = System.currentTimeMillis
             println("----------------------------------------------------------")
             println("Query time on the refine: " + ((time4 - time3) / 1000.0).toDouble)
@@ -544,13 +511,16 @@ object SpaceTimeParInvertIndex{
             println("The length of refineResult is: " + refineResult.length)
             // println("The map is : ")
             // for (i <- 0 until inputFilePath.split(",").length){
-            //     var temMap = mapOfParToTraj.get(i).get
-            //     for (j <- 0 until temMap.length){
-            //         print(temMap(j) + "  ")
+            //     if (i < 3){
+            //         var temMap = mapOfParToTraj.get(i).get
+            //         for (j <- 0 until temMap.length){
+            //             print(temMap(j) + "\t")
+            //         }
+            //         println("---")
             //     }
-            //     println("---")
+                
             // }
-            // println("The refineResult is: ")
+            println("The refineResult is: ")
             // for (i <- 0 until refineResult.length){
             //     for (j <- 0 until refineResult(i).length){
             //         print(refineResult(i)(j))
@@ -728,8 +698,7 @@ object SpaceTimeParInvertIndex{
             var spaceArray : Array[Int] = spaceSet.toArray
             for (j <- 0 until spaceArray.length){
                 val spaceID : Int = spaceArray(j)
-                val name : String = myBaseSettings.rootPath.concat("par").concat(timeID.toString).concat("zorder").concat(spaceID.toString).concat(".tstjs")
-                // val name : String = myBaseSettings.rootPath.concat("par").concat(timeID.toString).concat("zorder").concat(spaceID.toString).concat(".tstjs.gz")
+                val name : String = myBaseSettings.rootPath.concat("par").concat(timeID.toString).concat("zorder").concat(spaceID.toString).concat(".tstjs.gz")
                 finalPath += name
                 var temArrayBuffer : ArrayBuffer[Int] = spaceMap.get(spaceID).get
                 var afterChangeBuffer : ArrayBuffer[Int] = ArrayBuffer[Int]()
@@ -748,8 +717,8 @@ object SpaceTimeParInvertIndex{
         finalPath.mkString(",")
     }
 
-    def mapSearchWithRefine(iter : Iterator[Array[Byte]], myBaseSettings : BaseSetting, mapOfParToTraj : Map[Int, ArrayBuffer[Int]], 
-                            bcPatCoor : Broadcast[Array[(Float, Float)]]) : Iterator[Int] = {
+    def mapSearchWithRefine(iter : (Array[Byte], Long), myBaseSettings : BaseSetting, mapOfParToTraj : Map[Int, ArrayBuffer[Int]], 
+                            bcPatCoor : Broadcast[Array[(Float, Float)]]) : Array[Int] = {
         val timePartitionsNum  : Int = myBaseSettings.timePartitionsNum
         val spacePartitionsNum : Int = myBaseSettings.spacePartitionsNum
         val contiSnap          : Int = myBaseSettings.contiSnap
@@ -759,7 +728,7 @@ object SpaceTimeParInvertIndex{
 
         val oneParSnapNum : Int = myBaseSettings.oneParSnapNum
 
-        val partitionID : Int = TaskContext.get.partitionId
+        val partitionID : Int = iter._2.toInt
         var candiList : ArrayBuffer[Int] = mapOfParToTraj.get(partitionID).get
         val timeID : Int = candiList(0)
         val spaceID : Int = candiList(1)
@@ -775,92 +744,173 @@ object SpaceTimeParInvertIndex{
         var frontResult : ArrayBuffer[Int] = ArrayBuffer[Int]()
         var rearResult : ArrayBuffer[Int] = ArrayBuffer[Int]()
 
-        var totalPos : Int = -1
-        while(iter.hasNext){
-            var record : Array[Byte] = iter.next()
-            totalPos += 1
-            if (totalPos % oneParSnapNum == 0){
-                val parSeq = totalPos / oneParSnapNum
-                if (candiList.contains(parSeq)){
-                    var flagArray : Array[Int] = new Array[Int](oneParSnapNum)
-                    var flag : Int = 0
-                    var temConti : Int = 0
-                    var maxConti : Int = 0
-                    var pos : Int = 0
-                    while(pos < oneParSnapNum){
-                        val testLon : Float = ByteBuffer.wrap(record.slice(0, 4)).getFloat
-                        val testLat : Float = ByteBuffer.wrap(record.slice(4, 8)).getFloat
-                        val lon : Float = patCoorList(startSnap + pos)._1
-                        val lat : Float = patCoorList(startSnap + pos)._2
-                        val minLon : Float = lon - lonDiff
-                        val maxLon : Float = lon + lonDiff
-                        val minLat : Float = lat - latDiff
-                        val maxLat : Float = lat + latDiff
-                        if (PublicFunc.ifLocateSafeArea(minLon, maxLon, minLat, maxLat, testLon, testLat)){
-                            flagArray(pos) = 1
-                            if (flag == 0){
-                                temConti = 1
-                                flag = 1
-                            }else{
-                                temConti += 1
-                            }
-                        }else{
-                            flagArray(pos) = 0
-                            if (flag != 0){
-                                flag = 0
-                                if (maxConti < temConti){
-                                    maxConti = temConti
-                                }
-                            }
-                        }
-                        pos += 1
-                        if (pos < oneParSnapNum){
-                            if (iter.hasNext){
-                                record = iter.next()
-                            }
-                            totalPos += 1
-                        }
-                    }
-                    if (maxConti < temConti){
-                        maxConti = temConti
-                    }
-                    if (maxConti >= contiSnap){
-                        finalResult += parSeq
+        var testArray : Array[Byte] = iter._1
+        for (canPar <- candiList){
+            // if (timeID == 0){
+            //     println(timeID + "\t" + spaceID + "\t" + canPar)
+            // }
+            val beginPos : Int = oneParSnapNum * canPar * 8
+            var nowPos : Int = beginPos
+            var flagArray : Array[Int] = new Array[Int](oneParSnapNum)
+            var flag : Int = 0
+            var temConti : Int = 0
+            var maxConti : Int = 0
+            var pos : Int = 0
+            while(pos < oneParSnapNum){
+                val testLon : Float = ByteBuffer.wrap(testArray.slice(nowPos, nowPos + 4)).getFloat
+                val testLat : Float = ByteBuffer.wrap(testArray.slice(nowPos + 4, nowPos + 8)).getFloat
+                nowPos += 8
+                val lon : Float = patCoorList(startSnap + pos)._1
+                val lat : Float = patCoorList(startSnap + pos)._2
+                val minLon : Float = lon - lonDiff
+                val maxLon : Float = lon + lonDiff
+                val minLat : Float = lat - latDiff
+                val maxLat : Float = lat + latDiff
+                if (PublicFunc.ifLocateSafeArea(minLon, maxLon, minLat, maxLat, testLon, testLat)){
+                    flagArray(pos) = 1
+                    if (flag == 0){
+                        temConti = 1
+                        flag = 1
                     }else{
-                        if (flagArray(0) == 1){
-                            var count : Int = 0
-                            var loop = new Breaks
-                            loop.breakable{
-                            for (i <- 0 to oneParSnapNum - 1){
-                                if (flagArray(i) == 1){
-                                    count += 1
-                                }else{
-                                    loop.break()
-                                }
-                            }
-                            }
-                            frontResult += parSeq
-                            frontResult += count
-                        }
-                        if (flagArray(oneParSnapNum - 1) == 1){
-                            var count : Int = 0
-                            var loop = new Breaks
-                            loop.breakable{
-                            for (i <- oneParSnapNum - 1 to 0 by -1){
-                                if (flagArray(i) == 1){
-                                    count += 1
-                                }else{
-                                    loop.break()
-                                }
-                            }
-                            }
-                            rearResult += parSeq
-                            rearResult += count
+                        temConti += 1
+                    }
+                }else{
+                    flagArray(pos) = 0
+                    if (flag != 0){
+                        flag = 0
+                        if (maxConti < temConti){
+                            maxConti = temConti
                         }
                     }
                 }
+                pos += 1
+            }
+            if (maxConti < temConti){
+                maxConti = temConti
+            }
+            if (maxConti >= contiSnap){
+                finalResult += canPar
+            }else{
+                if (flagArray(0) == 1){
+                    var count : Int = 0
+                    var loop = new Breaks
+                    loop.breakable{
+                    for (i <- 0 until oneParSnapNum){
+                        if (flagArray(i) == 1){
+                            count += 1
+                        }else{
+                            loop.break()
+                        }
+                    }
+                    }
+                    frontResult += canPar
+                    frontResult += count
+                }
+                if (flagArray(oneParSnapNum - 1) == 1){
+                    var count : Int = 0
+                    var loop = new Breaks
+                    loop.breakable{
+                    for (i <- oneParSnapNum - 1 to 0 by -1){
+                        if (flagArray(i) == 1){
+                            count += 1
+                        }else{
+                            loop.break()
+                        }
+                    }
+                    }
+                    rearResult += canPar
+                    rearResult += count
+                }
             }
         }
+
+        // var totalPos : Int = 0
+        // var subPos : Int = 0
+        // while(subPos < iter._1.length){
+        //     var record : Array[Byte] = iter._1(subPos)
+        //     subPos += 1
+        //     if (totalPos % oneParSnapNum == 0){
+        //         val parSeq = totalPos / oneParSnapNum
+        //         if (candiList.contains(parSeq)){
+        //             var flagArray : Array[Int] = new Array[Int](oneParSnapNum)
+        //             var flag : Int = 0
+        //             var temConti : Int = 0
+        //             var maxConti : Int = 0
+        //             var pos : Int = 0
+        //             while(pos < oneParSnapNum){
+        //                 val testLon : Float = ByteBuffer.wrap(record.slice(0, 4)).getFloat
+        //                 val testLat : Float = ByteBuffer.wrap(record.slice(4, 8)).getFloat
+        //                 val lon : Float = patCoorList(startSnap + pos)._1
+        //                 val lat : Float = patCoorList(startSnap + pos)._2
+        //                 val minLon : Float = lon - lonDiff
+        //                 val maxLon : Float = lon + lonDiff
+        //                 val minLat : Float = lat - latDiff
+        //                 val maxLat : Float = lat + latDiff
+        //                 if (PublicFunc.ifLocateSafeArea(minLon, maxLon, minLat, maxLat, testLon, testLat)){
+        //                     flagArray(pos) = 1
+        //                     if (flag == 0){
+        //                         temConti = 1
+        //                         flag = 1
+        //                     }else{
+        //                         temConti += 1
+        //                     }
+        //                 }else{
+        //                     flagArray(pos) = 0
+        //                     if (flag != 0){
+        //                         flag = 0
+        //                         if (maxConti < temConti){
+        //                             maxConti = temConti
+        //                         }
+        //                     }
+        //                 }
+        //                 if (subPos < iter._1.length){
+        //                     record = iter._1(subPos)
+        //                     subPos += 1
+        //                 }
+        //                 pos += 1
+        //                 totalPos += 1
+        //             }
+        //             if (maxConti < temConti){
+        //                 maxConti = temConti
+        //             }
+        //             if (maxConti >= contiSnap){
+        //                 finalResult += parSeq
+        //             }else{
+        //                 if (flagArray(0) == 1){
+        //                     var count : Int = 0
+        //                     var loop = new Breaks
+        //                     loop.breakable{
+        //                     for (i <- 0 to oneParSnapNum - 1){
+        //                         if (flagArray(i) == 1){
+        //                             count += 1
+        //                         }else{
+        //                             loop.break()
+        //                         }
+        //                     }
+        //                     }
+        //                     frontResult += parSeq
+        //                     frontResult += count
+        //                 }
+        //                 if (flagArray(oneParSnapNum - 1) == 1){
+        //                     var count : Int = 0
+        //                     var loop = new Breaks
+        //                     loop.breakable{
+        //                     for (i <- oneParSnapNum - 1 to 0 by -1){
+        //                         if (flagArray(i) == 1){
+        //                             count += 1
+        //                         }else{
+        //                             loop.break()
+        //                         }
+        //                     }
+        //                     }
+        //                     rearResult += parSeq
+        //                     rearResult += count
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     totalPos += 1
+        // }
         var result : ArrayBuffer[Int] = ArrayBuffer[Int]()
         result += timeID
         result += spaceID
@@ -876,7 +926,7 @@ object SpaceTimeParInvertIndex{
         for (i <- 0 until rearResult.length){
             result += rearResult(i)
         }
-        result.iterator
+        result.toArray
     }
 
     def mapSearchWithRefine2(iter : Iterator[Array[Byte]], myBaseSettings : BaseSetting, mapOfParToTraj : Map[Int, ArrayBuffer[Int]], 

@@ -52,10 +52,12 @@ class BaseSetting extends Serializable{
     var oneParSnapNum : Int = -1
     var lonGridNum : Int = -1
     var latGridNum : Int = -1
-    var MINLON : Float = -1.0
-    var MINLAT : Float = -1.0
-    var lonGridLength : Float = -1.0
-    var latGridLength : Float = -1.0
+    var MINLON : Float = (-1.0).toFloat
+    var MINLAT : Float = (-1.0).toFloat
+    var lonGridLength : Float = (-1.0).toFloat
+    var latGridLength : Float = (-1.0).toFloat
+    var trajNumEachSpace : Int = -1
+
 
     def setDelta(delta : Double){
         this.delta = delta
@@ -134,6 +136,10 @@ class BaseSetting extends Serializable{
 
     def setLatGridLength(latGridLength : Float){
         this.latGridLength = latGridLength
+    }
+
+    def setTrajNumEachSpace(trajNumEachSpace : Int){
+        this.trajNumEachSpace = trajNumEachSpace
     }
 
 }
